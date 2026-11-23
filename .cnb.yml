@@ -1,24 +1,35 @@
-# One-shot CNB test on the isolated CCTV-1 probe branch.
-# The first stage records only the egress country code (never the public IP).
-"test/cctv1-actions-probe-20261123":
+# CNB CCTV-1 one-shot test: egress country + Migu M3U8 probe.
+# No account token is used. Temporary playback URLs are not printed or saved.
+main:
   push:
-    - stages:
-        - name: Check CNB runner egress country
-          image: curlimages/curl:8.12.1
+    - name: cctv1-egress-and-playback-probe
+      runner:
+        tags: cnb:arch:amd64
+        cpus: 1
+      docker:
+        image: golang:1.22.12
+      stages:
+        - name: Check runner egress country and prepare tools
           script: |
-            COUNTRY="$(curl -fsS --max-time 15 https://ipapi.co/country/ 2>/dev/null | tr -d '\r\n' || true)"
+            set -eu
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends git curl ca-certificates
+
+            COUNTRY="$(curl -fsSL --max-time 15 https://ipapi.co/country/ 2>/dev/null | tr -d '\r\n' || true)"
             if [ -z "$COUNTRY" ]; then
-              COUNTRY="unknown"
+              COUNTRY="$(curl -fsSL --max-time 15 https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)"
             fi
-            echo "RUNNER_COUNTRY=$COUNTRY"
-            mkdir -p "$CNB_BUILD_WORKSPACE"
-            printf '%s' "$COUNTRY" > "$CNB_BUILD_WORKSPACE/runner-country.txt"
-        - name: Resolve CCTV-1 and verify M3U8
-          image: golang:1.22.12
+            echo "CNB_RUNNER_COUNTRY=${COUNTRY:-unknown}"
+
+        - name: Resolve CCTV-1 and verify M3U8 response
           script: |
-            echo "Runner country: $(cat "$CNB_BUILD_WORKSPACE/runner-country.txt")"
+            set -eu
             git clone https://github.com/hhzol/migu.git /tmp/hhzol-migu
             git -C /tmp/hhzol-migu checkout ffc276a00f21de52a0775a53432ed1e944aba255
-            cp "$CNB_BUILD_WORKSPACE/probe/cctv1_test.go" /tmp/hhzol-migu/cctv1_probe_test.go
+
+            curl -fsSL --max-time 20 \
+              "https://raw.githubusercontent.com/devatvmo/migu_video/test/cctv1-actions-probe-20261123/probe/cctv1_test.go" \
+              -o /tmp/hhzol-migu/cctv1_probe_test.go
+
             cd /tmp/hhzol-migu
             go test -v -run '^TestCCTV1Probe$' -count=1 .
