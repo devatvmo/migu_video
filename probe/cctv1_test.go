@@ -2,12 +2,54 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 )
+
+// summarizeResolverError exposes only JSON field names and the request ID.
+// It never prints the response body or the temporary playback URL.
+func summarizeResolverError(err error) string {
+	msg := err.Error()
+	if strings.HasPrefix(msg, "empty play url") {
+		parts := strings.SplitN(msg, " response=", 2)
+		rid := strings.TrimPrefix(parts[0], "empty play url rid=")
+		summary := "api_response_missing_play_url rid=" + rid
+
+		if len(parts) == 2 {
+			var payload map[string]json.RawMessage
+			if json.Unmarshal([]byte(parts[1]), &payload) == nil {
+				keys := make([]string, 0, len(payload))
+				for key := range payload {
+					keys = append(keys, key)
+				}
+				sort.Strings(keys)
+				summary += " top_level_keys=" + strings.Join(keys, ",")
+				if raw, ok := payload["body"]; ok {
+					var body map[string]json.RawMessage
+					if json.Unmarshal(raw, &body) == nil {
+						bodyKeys := make([]string, 0, len(body))
+						for key := range body {
+							bodyKeys = append(bodyKeys, key)
+						}
+						sort.Strings(bodyKeys)
+						summary += " body_keys=" + strings.Join(bodyKeys, ",")
+					}
+				}
+			} else {
+				summary += " response_json=unparseable"
+			}
+		}
+		return summary
+	}
+	return fmt.Sprintf("resolver_error_type=%T", err)
+}
 
 // TestCCTV1Probe runs only against the public/anonymous HD stream.
 // It deliberately never prints or stores the temporary playback URL.
@@ -17,8 +59,8 @@ func TestCCTV1Probe(t *testing.T) {
 
 	streamURL, err := GetAndroidURL(pid, 3, "", "")
 	if err != nil {
-		t.Fatalf("RESULT=resolve_failed elapsed_ms=%d error_type=%T",
-			time.Since(started).Milliseconds(), err)
+		t.Fatalf("RESULT=resolve_failed elapsed_ms=%d %s",
+			time.Since(started).Milliseconds(), summarizeResolverError(err))
 	}
 
 	parsed, err := url.Parse(streamURL)
