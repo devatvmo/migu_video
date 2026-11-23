@@ -1,0 +1,24 @@
+# One-shot CNB test on the isolated CCTV-1 probe branch.
+# The first stage records only the egress country code (never the public IP).
+"test/cctv1-actions-probe-20261123":
+  push:
+    - stages:
+        - name: Check CNB runner egress country
+          image: curlimages/curl:8.12.1
+          script: |
+            COUNTRY="$(curl -fsS --max-time 15 https://ipapi.co/country/ 2>/dev/null | tr -d '\r\n' || true)"
+            if [ -z "$COUNTRY" ]; then
+              COUNTRY="unknown"
+            fi
+            echo "RUNNER_COUNTRY=$COUNTRY"
+            mkdir -p "$CNB_BUILD_WORKSPACE"
+            printf '%s' "$COUNTRY" > "$CNB_BUILD_WORKSPACE/runner-country.txt"
+        - name: Resolve CCTV-1 and verify M3U8
+          image: golang:1.22.12
+          script: |
+            echo "Runner country: $(cat "$CNB_BUILD_WORKSPACE/runner-country.txt")"
+            git clone https://github.com/hhzol/migu.git /tmp/hhzol-migu
+            git -C /tmp/hhzol-migu checkout ffc276a00f21de52a0775a53432ed1e944aba255
+            cp "$CNB_BUILD_WORKSPACE/probe/cctv1_test.go" /tmp/hhzol-migu/cctv1_probe_test.go
+            cd /tmp/hhzol-migu
+            go test -v -run '^TestCCTV1Probe$' -count=1 .
