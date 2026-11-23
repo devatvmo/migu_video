@@ -1,0 +1,40 @@
+name: Migu CCTV-1 one-channel probe
+
+on:
+  push:
+    branches:
+      - test/cctv1-actions-probe-20261123
+    paths:
+      - .github/workflows/migu-cctv1-probe.yml
+      - probe/cctv1_test.go
+
+permissions:
+  contents: read
+
+jobs:
+  cctv1-probe:
+    name: Resolve anonymous HD stream and verify M3U8
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the isolated test branch
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.12'
+
+      - name: Get the inspected resolver source
+        run: |
+          git clone https://github.com/hhzol/migu.git /tmp/hhzol-migu
+          git -C /tmp/hhzol-migu checkout ffc276a00f21de52a0775a53432ed1e944aba255
+
+      - name: Install the one-channel test
+        run: cp probe/cctv1_test.go /tmp/hhzol-migu/cctv1_probe_test.go
+
+      - name: Request CCTV-1 and verify the playlist
+        working-directory: /tmp/hhzol-migu
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+        run: go test -v -run '^TestCCTV1Probe$' -count=1 .
